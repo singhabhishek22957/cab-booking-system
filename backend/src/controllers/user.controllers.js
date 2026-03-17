@@ -1,6 +1,7 @@
 import supabase from "../config/supabaseClient.js";
 import ApiError from "../utils/apiError.js";
 import ApiResponse from "../utils/apiResponse.js";
+import fs from "fs";
 
 const registerUser = async (req, res) => {
   const { name, email, phone, password } = req.body;
@@ -89,43 +90,204 @@ const loginUser = async (req, res) => {
   }
 };
 
-
-const getUser = async (req,res)=>{
+const getUser = async (req, res) => {
   const user = req.user;
-  return res.status(200).json(new ApiResponse(200, "User Fetch successfully ", user));
-}
+  return res
+    .status(200)
+    .json(new ApiResponse(200, "User Fetch successfully ", user));
+};
 
-
-const logoutUser = async ( req,res)=>{
-
+const uploadProfileImage = async (req, res) => {
+  const profilePath = req.file.path;
   try {
-    const token = req.cookies.accessToken; 
-  
-    if( token ){
+    const profile = req.file;
+
+    const fileName = `${Date.now()}-${profile.filename}`;
+    const fileBuffer = fs.readFileSync(profile.path);
+    console.log("filename:", fileName);
+
+    console.log("mimetype:", profile.mimetype);
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from("cab-booking-system")
+      .upload(`user_profile_image/${fileName}`, fileBuffer, {
+        contentType: profile.mimetype,
+      });
+
+    console.log("Upload error ", uploadError);
+
+    if (uploadError) {
+      return res
+        .status(400)
+        .json(new ApiError(400, `from image uploading ${uploadError.message}`));
+    }
+
+    const { data: imageLinkData, error: imageLinkError } =
+      await supabase.storage
+        .from("cab-booking-system")
+        .getPublicUrl(`user_profile_image/${fileName}`);
+
+    if (imageLinkError) {
+      return res.status(400).json(new ApiError(400, imageLinkError.message));
+    }
+
+    const profileImageUrl = imageLinkData.publicUrl;
+
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .update({
+        profile_image: profileImageUrl,
+      })
+      .eq("user_id", req.user.user_id);
+
+    if (userError) {
+      return res.status(400).json(new ApiError(400, userError.message));
+    }
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(200, "profile image upload successfully", userData),
+      );
+  } catch (error) {
+    console.log("Error to upload profile image ");
+    return res.status(500).json(new ApiError(500, error.message));
+  } finally {
+    fs.unlinkSync(profilePath);
+  }
+};
+
+const updateProfileImage = async (req, res) => {
+  const profile = req.file;
+  const profilePath = req.file.path;
+  const fileName = `${Date.now()}-${profile.filename}`;
+  const fileBuffer = fs.readFileSync(profile.path);
+  try {
+    if (!profile) {
+      return res
+        .status(400)
+        .json(new ApiError(400, "Profile Image is required"));
+    }
+    const oldUrl = req.user.profile_image.split("/");
+    const oldUrlId = oldUrl[oldUrl.length - 1];
+
+    const { data: deleteData, error: deleteError } = await supabase.storage
+      .from("cab-booking-system")
+      .remove([`user_profile_image/${oldUrlId}`]);
+
+    if (deleteError) {
+      return res.status(400).json(new ApiError(400, deleteError.message));
+    }
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from("cab-booking-system")
+      .upload(`user_profile_image/${fileName}`, fileBuffer, {
+        contentType: profile.mimetype,
+      });
+
+    if (uploadError) {
+      return res
+        .status(400)
+        .json(new ApiError(400, `from image uploading ${uploadError.message}`));
+    }
+
+    const { data: imageLinkData, error: imageLinkError } =
+      await supabase.storage
+        .from("cab-booking-system")
+        .getPublicUrl(`user_profile_image/${fileName}`);
+
+    if (imageLinkError) {
+      return res.status(400).json(new ApiError(400, imageLinkError.message));
+    }
+
+    const profileImageUrl = imageLinkData.publicUrl;
+
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .update({
+        profile_image: profileImageUrl,
+      })
+      .eq("user_id", req.user.user_id);
+
+    if (userError) {
+      return res.status(400).json(new ApiError(400, userError.message));
+    }
+
+    return res.status(200).json(new ApiResponse(200, "Profile image updated"));
+  } catch (error) {
+    console.log("Error to update profile image ", error);
+    return res.status(400).json(new ApiError(400, error.message));
+  } finally {
+    if (profilePath) {
+      fs.unlinkSync(profilePath);
+    }
+  }
+};
+
+const deleteProfileImage = async (req, res) => {
+  try {
+    if (!req.user.profile_image) {
+      return res
+        .status(400)
+        .json(new ApiError(400, "Profile Image is required"));
+    }
+    const oldUrl = req.user.profile_image.split("/");
+    const oldUrlId = oldUrl[oldUrl.length - 1];
+    const { data: deleteData, error: deleteError } = await supabase.storage
+      .from("cab-booking-system")
+      .remove([`user_profile_image/${oldUrlId}`]);
+
+    if (deleteError) {
+      return res.status(400).json(new ApiError(400, deleteError.message));
+    }
+
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .update({
+        profile_image: null,
+      })
+      .eq("user_id", req.user.user_id);
+
+    if (userError) {
+      return res.status(400).json(new ApiError(400, userError.message));
+    }
+
+    return res.status(200).json(new ApiResponse(200, "Profile image deleted"));
+  } catch (error) {
+    console.log("Error to delete profile image ", error);
+    return res.status(400).json(new ApiError(400, error.message));
+  }
+};
+
+const logoutUser = async (req, res) => {
+  try {
+    const token = req.cookies.accessToken;
+
+    if (token) {
       await supabase.auth.signOut(token);
     }
-  
-    res.clearCookie("accessToken",{
-      httpOnly:true,
-      secure: false, // true at production 
-    })
-  
-     return res.status(200).json({
-        success: true,
-        message: "Logout successful"
-      });
+
+    res.clearCookie("accessToken", {
+      httpOnly: true,
+      secure: false, // true at production
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful",
+    });
   } catch (error) {
-
-    console.log("Error to logout ",error);
-    return res.status(500).json(new ApiError(500,error.message))
-    
-    
+    console.log("Error to logout ", error);
+    return res.status(500).json(new ApiError(500, error.message));
   }
-}
+};
 
-export { 
-  registerUser, 
-  getUser , 
-  loginUser ,
-  logoutUser
+export {
+  registerUser,
+  getUser,
+  loginUser,
+  logoutUser,
+  uploadProfileImage,
+  updateProfileImage,
+  deleteProfileImage,
 };
