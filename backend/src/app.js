@@ -19,4 +19,7 @@ app.get("/", (req, res) => {
 import userRouter from "./routes/user.route.js"
 app.use("/user",userRouter);
 
+import driverRouter from "./routes/driver.route.js"
+app.use("/driver",driverRouter);
+
 export default app;
